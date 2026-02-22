@@ -8,6 +8,7 @@ import math
 import sys
 import re
 import queue
+import gc
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -1105,6 +1106,11 @@ class WhisperGUI:
 
             # --- Process Files Loop ---
             for i, file_path in enumerate(files_to_process):
+                # Aggressive cleanup at start of loop iteration
+                if i > 0 and i % 5 == 0:
+                    gc.collect()
+                    if device == 'cuda': torch.cuda.empty_cache()
+
                 base_filename = os.path.basename(file_path)
                 if file_path not in self.file_data: self._log_message_gui(f"⚠️ File path {file_path} not in internal list, skipping."); continue
                 tree_id = self.file_data[file_path]['tree_id']
@@ -1241,6 +1247,10 @@ class WhisperGUI:
                             files_remaining = self.total_batch_files - self.processed_batch_files
                             batch_eta_seconds = avg_time * files_remaining
                     self.update_progress_labels(batch_eta=batch_eta_seconds)
+
+                # Explicit cleanup at end of loop
+                del segment_list
+                gc.collect()
 
             # --- End of Loop ---
             if self.stop_requested == 0:
