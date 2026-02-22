@@ -6,6 +6,7 @@ import threading
 import time
 import math
 import sys
+import re
 import queue
 import numpy as np
 import matplotlib.pyplot as plt
@@ -105,6 +106,40 @@ STATUS_SKIPPED = "⚠️"
 STATUS_ERROR = "❌"
 
 # --- Helper Functions ---
+def extract_metadata_from_path(filepath):
+    """
+    Extracts Artist, Title, and Album from filepath.
+    Pattern: .../Artist/Album [Year]/Artist - Title.ext
+    """
+    try:
+        # Normalize path separators for robust handling across OS
+        filepath = filepath.replace('\\', '/')
+        filename = os.path.basename(filepath)
+        parent_dir = os.path.dirname(filepath)
+        album_dir_name = os.path.basename(parent_dir)
+
+        artist = None; title = None; album = None
+
+        # 1. Artist and Title from Filename (Artist - Title.ext)
+        base_name, _ = os.path.splitext(filename)
+        if " - " in base_name:
+            parts = base_name.split(" - ", 1)
+            artist = parts[0].strip()
+            title = parts[1].strip()
+
+        # 2. Album from Parent Directory (Album [Year])
+        if album_dir_name:
+            # Remove [Year] suffix
+            album = re.sub(r'\s*\[.*?\]\s*$', '', album_dir_name)
+            # Also remove (Year) just in case
+            album = re.sub(r'\s*\(.*?\)\s*$', '', album).strip()
+
+        return artist, title, album
+
+    except Exception as e:
+        print(f"Path Parsing Error: {e}")
+        return None, None, None
+
 def get_moods_from_text(text):
     """Analyzes text to extract 3-7 moods from MOOD_LIST."""
     if not text: return ["Unknown", "Neutral", "Quiet"] # Fallback
@@ -165,13 +200,16 @@ def calculate_bpm(audio_path):
         return 0
 
 def update_audio_metadata(filepath, bpm, moods):
-    """Updates audio file metadata with BPM and Moods (Mutagen)."""
+    """Updates audio file metadata with BPM, Moods, and extracted info (Mutagen)."""
     try:
         _, ext = os.path.splitext(filepath)
         ext = ext.lower()
 
+        # Extract Metadata from Path
+        path_artist, path_title, path_album = extract_metadata_from_path(filepath)
+
         if ext == ".mp3":
-            from mutagen.id3 import ID3, TMOO, TBPM, TXXX, ID3NoHeaderError
+            from mutagen.id3 import ID3, TMOO, TBPM, TXXX, TIT2, TPE1, TALB, ID3NoHeaderError
             try: audio = ID3(filepath)
             except ID3NoHeaderError: audio = ID3(); audio.save(filepath) # Create if missing
 
@@ -180,24 +218,13 @@ def update_audio_metadata(filepath, bpm, moods):
             if "TMOO" in audio:
                 existing_moods = audio["TMOO"].text
 
-            # Combine, Dedup, Ensure 3-7
-            # Note: "existing_moods" is a list of strings
-            # If we simply append, we might exceed 7.
-            # Requirement: "not in addition to the current amount" -> "every file is required to have at minimum 3 moods max 7"
-            # Logic: If existing moods exist, keep them. Add new ones until valid count.
-            # But prompt says "not in addition to the current amount" ?
-            # Wait: "every file is required to have at minimum 3 moods max 7 when the process is complete not in addition to the current amount"
-            # This likely means: Final Total = 3 to 7.
-            # So if file has 2, add 1-5. If file has 10, maybe keep them? Or truncate?
-            # Prompt says "max 7". So I should probably limit total to 7.
-
             all_moods = []
             for m in existing_moods: all_moods.append(str(m))
             for m in moods:
                 if m not in all_moods: all_moods.append(str(m))
 
             final_moods = all_moods[:7] # Enforce Max 7
-            while len(final_moods) < 3: final_moods.append("Unknown") # Should not happen given get_moods logic but safety
+            while len(final_moods) < 3: final_moods.append("Unknown")
 
             audio["TMOO"] = TMOO(encoding=3, text=final_moods)
             audio["TXXX:MOOD"] = TXXX(encoding=3, desc="MOOD", text=final_moods) # Fallback
@@ -206,13 +233,18 @@ def update_audio_metadata(filepath, bpm, moods):
             if bpm > 0:
                 audio["TBPM"] = TBPM(encoding=3, text=str(bpm))
 
+            # Path Metadata
+            if path_title: audio["TIT2"] = TIT2(encoding=3, text=path_title)
+            if path_artist: audio["TPE1"] = TPE1(encoding=3, text=path_artist)
+            if path_album: audio["TALB"] = TALB(encoding=3, text=path_album)
+
             audio.save()
 
         elif ext == ".flac":
             from mutagen.flac import FLAC
             audio = FLAC(filepath)
 
-            # Moods (Vorbis Comment: MOOD)
+            # Moods
             current_moods = audio.get("MOOD", [])
             all_moods = list(current_moods)
             for m in moods:
@@ -221,15 +253,19 @@ def update_audio_metadata(filepath, bpm, moods):
             final_moods = all_moods[:7]
             audio["MOOD"] = final_moods
 
-            if bpm > 0:
-                audio["BPM"] = str(bpm)
+            if bpm > 0: audio["BPM"] = str(bpm)
+
+            # Path Metadata (Vorbis)
+            if path_title: audio["TITLE"] = path_title
+            if path_artist: audio["ARTIST"] = path_artist
+            if path_album: audio["ALBUM"] = path_album
 
             audio.save()
 
         elif ext == ".ogg":
             from mutagen.oggvorbis import OggVorbis
             audio = OggVorbis(filepath)
-             # Moods (Vorbis Comment: MOOD)
+             # Moods
             current_moods = audio.get("MOOD", [])
             all_moods = list(current_moods)
             for m in moods:
@@ -238,20 +274,22 @@ def update_audio_metadata(filepath, bpm, moods):
             final_moods = all_moods[:7]
             audio["MOOD"] = final_moods
 
-            if bpm > 0:
-                audio["BPM"] = str(bpm)
+            if bpm > 0: audio["BPM"] = str(bpm)
+
+            # Path Metadata (Vorbis)
+            if path_title: audio["TITLE"] = path_title
+            if path_artist: audio["ARTIST"] = path_artist
+            if path_album: audio["ALBUM"] = path_album
+
             audio.save()
 
         elif ext == ".wav":
-             # WAV metadata is tricky. Mutagen can handle ID3 in WAV (RIFF ID3 chunk).
-             # Or use mutagen.wave
              from mutagen.wave import WAVE
              audio = WAVE(filepath)
-             # ... WAVE usually supports ID3 tags too via audio.tags
              if audio.tags is None: audio.add_tags()
 
-             # Same as MP3 ID3 logic essentially
-             from mutagen.id3 import TMOO, TBPM, TXXX
+             # Use ID3 tags for WAV
+             from mutagen.id3 import TMOO, TBPM, TXXX, TIT2, TPE1, TALB
 
              existing_moods = []
              if "TMOO" in audio.tags: existing_moods = audio.tags["TMOO"].text
@@ -266,6 +304,12 @@ def update_audio_metadata(filepath, bpm, moods):
              audio.tags["TXXX:MOOD"] = TXXX(encoding=3, desc="MOOD", text=final_moods)
              if bpm > 0:
                  audio.tags["TBPM"] = TBPM(encoding=3, text=str(bpm))
+
+             # Path Metadata
+             if path_title: audio.tags["TIT2"] = TIT2(encoding=3, text=path_title)
+             if path_artist: audio.tags["TPE1"] = TPE1(encoding=3, text=path_artist)
+             if path_album: audio.tags["TALB"] = TALB(encoding=3, text=path_album)
+
              audio.save()
 
         return True
@@ -508,7 +552,7 @@ class WhisperGUI:
         # --- Output Frame (Simplified) ---
         output_frame = ttk.LabelFrame(left_panel, text="💾 Output", padding=(10, 5), style="Futuristic.TLabelframe")
         output_frame.grid(row=3, column=0, columnspan=3, sticky="ew", padx=5, pady=5); output_frame.columnconfigure(0, weight=1)
-        self.output_info_label = ttk.Label(output_frame, text="Output: TXT (always) + SRT (for video) / LRC (for audio)\nSaved in the same directory as the input file.", style="Desc.TLabel", justify=tk.LEFT)
+        self.output_info_label = ttk.Label(output_frame, text="Output: SRT (for video) / LRC (for audio)\nSaved in the same directory as the input file.", style="Desc.TLabel", justify=tk.LEFT)
         self.output_info_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
 
         # --- Action & Progress Frame ---
@@ -1158,12 +1202,12 @@ class WhisperGUI:
                             self.update_status_threadsafe(f"{STATUS_ERROR} Error saving {fmt}: {file_path}")
                             return False
 
-                    txt_saved = save_output("TXT", output_base, segments_to_txt, segment_list)
+                    # Only save timed format (LRC or SRT), skip TXT
                     timed_saved = False
                     if save_func: timed_saved = save_output(target_timed_format, output_base, save_func, segment_list)
 
-                    if txt_saved and timed_saved: self.update_status_threadsafe(f"{STATUS_COMPLETED} {file_path}"); save_successful = True
-                    elif not txt_saved and not timed_saved: self._log_message_gui(f"   ⚠️ Failed to save any output files for {base_filename}.")
+                    if timed_saved: self.update_status_threadsafe(f"{STATUS_COMPLETED} {file_path}"); save_successful = True
+                    else: self._log_message_gui(f"   ⚠️ Failed to save any output files for {base_filename}.")
 
                     # --- Audio Analysis & Tagging (NEW) ---
                     if save_successful and is_audio:
