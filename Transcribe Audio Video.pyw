@@ -22,6 +22,10 @@ try: from tkinterdnd2 import DND_FILES, TkinterDnD
 except ImportError: messagebox.showerror("Dependency Error", "Please install TkinterDnD2:\npip install tkinterdnd2-universal"); sys.exit(1)
 try: from faster_whisper import WhisperModel, format_timestamp
 except ImportError: messagebox.showerror("Dependency Error", "Please install faster-whisper:\npip install faster-whisper"); sys.exit(1)
+try: import mutagen
+except ImportError: messagebox.showerror("Dependency Error", "Please install mutagen:\npip install mutagen"); sys.exit(1)
+try: from textblob import TextBlob
+except ImportError: messagebox.showerror("Dependency Error", "Please install textblob:\npip install textblob"); sys.exit(1)
 try:
     import torch
     PYTORCH_AVAILABLE = True
@@ -30,6 +34,39 @@ try:
 except ImportError: PYTORCH_AVAILABLE = False; CUDA_AVAILABLE = False; print("PyTorch not found. GPU unavailable.")
 
 # --- Constants ---
+MOOD_LIST = [
+    "Abstract", "Accepting", "Adventurous", "Aggressive", "Alluring", "Angry", "Anguished", "Animated", "Anticipating",
+    "Anxious", "Apprehensive", "Atmospheric", "Beautiful", "Bitchy", "Bitter", "Bittersweet", "Bizarre", "Bold",
+    "Booming", "Bouncy", "Brave", "Bright", "Building", "Buoyant", "Busy", "Calm", "Campy", "Carefree", "Careful",
+    "Caring", "Cautious", "Celebratory", "Chaotic", "Cheeky", "Cheerful", "Childish", "Climactic", "Cold", "Comforting",
+    "Confident", "Confrontational", "Confused", "Contemplative", "Cool", "Crazy", "Creepy", "Crunk", "Curious",
+    "Dancing", "Dangerous", "Dark", "Deep", "Defeated", "Delicate", "Delighted", "Depressed", "Determined",
+    "Disenchanted", "Disillusioned", "Dissonant", "Disturbing", "Doubtful", "Dramatic", "Dreadful", "Dreamy",
+    "Driving", "Droning", "Drunk", "Dynamic", "Earthy", "Easy", "Ecstatic", "Edgy", "Eerie", "Elated", "Elegant",
+    "Emotional", "Enchanted", "Energetic", "Epic", "Erotic", "Escalating", "Ethereal", "Evil", "Excited", "Exotic",
+    "Explosive", "Fast", "Fearful", "Festive", "Fiery", "Flirtatious", "Flowing", "Forceful", "Foreboding", "Forgiving",
+    "Frantic", "Freaky", "Free", "Fresh", "Friendly", "Frisky", "Fun", "Funky", "Funny", "Glorious", "Good", "Graceful",
+    "Grand", "Greasy", "Gritty", "Groovy", "Gutsy", "Happy", "Hard", "Haunting", "Heartbroken", "Heartening",
+    "Heartwarming", "Heated", "Heavenly", "Heavy", "Hectic", "Helpless", "Heroic", "Honest", "Hopeful", "Hopeless",
+    "Horny", "Hot", "Humble", "Hurt", "Hypnotic", "Innocent", "Inquisitive", "Inspiring", "Intelligent", "Intense",
+    "Intricate", "Jangly", "Jealous", "Jolly", "Joyful", "Jumpy", "Kind", "Light", "Lively", "Lofty", "Lonely",
+    "Longing", "Lost", "Loud", "Loving", "Mad", "Magical", "Majestic", "Marching", "Mean", "Meaningful", "Mechanical",
+    "Meditative", "Melancholic", "Mellow", "Menacing", "Mischievous", "Moody", "Motivational", "Mournful", "Moving",
+    "Mysterious", "Mystical", "Nervous", "Noble", "Nostalgic", "Obsessive", "Ominous", "Oppressed", "Optimistic",
+    "Outgoing", "Painful", "Passionate", "Patriotic", "Peaceful", "Pensive", "Playful", "Pleading", "Pleased",
+    "Pompous", "Positive", "Powerful", "Primitive", "Proud", "Pulsating", "Purposeful", "Pushy", "Questioning", "Quiet",
+    "Quirky", "Rambling", "Raunchy", "Raw", "Rebellious", "Reflective", "Regal", "Regretful", "Relaxing", "Repetitive",
+    "Restless", "Retro", "Reverent", "Rhythmic", "Risque", "Romantic", "Rousing", "Sad", "Scared", "Scary", "Schmaltzy",
+    "Secretive", "Sedate", "Sensitive", "Sensual", "Sentimental", "Serene", "Serious", "Sexy", "Shimmering", "Sick",
+    "Silly", "Simple", "Sincere", "Sinister", "Slow", "Smokey", "Smooth", "Sneaky", "Snobbish", "Soaring", "Soft",
+    "Solemn", "Somber", "Soothing", "Sophisticated", "Sorry", "Soulful", "Spacious", "Sparse", "Spirited", "Sprightly",
+    "Stable", "Stately", "Stimulating", "Stirring", "Strange", "Street-Smart", "Striking", "Strong", "Sublime", "Subtle",
+    "Successful", "Suffocated", "Suggestive", "Summery", "Surprising", "Suspenseful", "Suspicious", "Swaggering",
+    "Sweeping", "Sweet", "Swinging", "Swirling", "Tender", "Tension", "Terror", "Thankful", "Thinking", "Thoughtful",
+    "Thrilling", "Touching", "Tough", "Tragic", "Trance", "Tranquil", "Triumphant", "Ugly", "Unfriendly", "Uplifting",
+    "Vengeful", "Vibrant", "Wacky", "Warm", "Whimsical", "Wholesome", "Wicked", "Wild", "Wondrous", "Worried", "Wrong"
+]
+
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 MODEL_DOWNLOAD_DIR = os.path.join(SCRIPT_DIR, "Audio Models")
 AUDIO_EXTENSIONS = ["*.wav", "*.mp3", "*.flac", "*.aac", "*.m4a", "*.ogg"]
@@ -68,6 +105,174 @@ STATUS_SKIPPED = "⚠️"
 STATUS_ERROR = "❌"
 
 # --- Helper Functions ---
+def get_moods_from_text(text):
+    """Analyzes text to extract 3-7 moods from MOOD_LIST."""
+    if not text: return ["Unknown", "Neutral", "Quiet"] # Fallback
+
+    text_lower = text.lower()
+    found_moods = set()
+
+    # 1. Direct Keyword Matching
+    for mood in MOOD_LIST:
+        if mood.lower() in text_lower:
+            found_moods.add(mood)
+
+    # 2. Sentiment Analysis Fallback
+    try:
+        blob = TextBlob(text)
+        sentiment = blob.sentiment.polarity # -1 to 1
+        subjectivity = blob.sentiment.subjectivity # 0 to 1
+
+        if sentiment > 0.5: found_moods.update(["Positive", "Happy", "Bright"])
+        elif sentiment < -0.5: found_moods.update(["Negative", "Sad", "Dark"])
+        elif sentiment > 0: found_moods.update(["Optimistic", "Light"])
+        elif sentiment < 0: found_moods.update(["Melancholic", "Serious"])
+        else: found_moods.update(["Neutral", "Calm"])
+
+        if subjectivity > 0.7: found_moods.update(["Emotional", "Passionate"])
+        elif subjectivity < 0.3: found_moods.update(["Simple", "Direct"])
+
+    except Exception: pass # TextBlob might fail if corpora missing
+
+    # 3. Ensure 3-7 Moods
+    final_moods = list(found_moods)
+
+    # Pad if < 3
+    if len(final_moods) < 3:
+        # Add generics if not already present
+        defaults = ["Atmospheric", "Reflective", "Narrative", "Musical", "Rhythmic", "Vocal"]
+        for d in defaults:
+            if d not in final_moods:
+                final_moods.append(d)
+                if len(final_moods) >= 3: break
+
+    # Truncate if > 7 (random sample or just first N? First N usually better for reproducibility)
+    if len(final_moods) > 7:
+        final_moods = final_moods[:7]
+
+    return final_moods
+
+def calculate_bpm(audio_path):
+    """Calculates BPM using librosa."""
+    try:
+        y, sr = librosa.load(audio_path, sr=None, duration=120) # Analyze first 2 mins max for speed
+        tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+        # tempo can be a scalar or an array depending on librosa version/method
+        if np.ndim(tempo) > 0: tempo = tempo[0]
+        return int(round(tempo))
+    except Exception as e:
+        print(f"BPM Error: {e}")
+        return 0
+
+def update_audio_metadata(filepath, bpm, moods):
+    """Updates audio file metadata with BPM and Moods (Mutagen)."""
+    try:
+        _, ext = os.path.splitext(filepath)
+        ext = ext.lower()
+
+        if ext == ".mp3":
+            from mutagen.id3 import ID3, TMOO, TBPM, TXXX, ID3NoHeaderError
+            try: audio = ID3(filepath)
+            except ID3NoHeaderError: audio = ID3(); audio.save(filepath) # Create if missing
+
+            # Moods (TMOO) - ID3v2.4
+            existing_moods = []
+            if "TMOO" in audio:
+                existing_moods = audio["TMOO"].text
+
+            # Combine, Dedup, Ensure 3-7
+            # Note: "existing_moods" is a list of strings
+            # If we simply append, we might exceed 7.
+            # Requirement: "not in addition to the current amount" -> "every file is required to have at minimum 3 moods max 7"
+            # Logic: If existing moods exist, keep them. Add new ones until valid count.
+            # But prompt says "not in addition to the current amount" ?
+            # Wait: "every file is required to have at minimum 3 moods max 7 when the process is complete not in addition to the current amount"
+            # This likely means: Final Total = 3 to 7.
+            # So if file has 2, add 1-5. If file has 10, maybe keep them? Or truncate?
+            # Prompt says "max 7". So I should probably limit total to 7.
+
+            all_moods = []
+            for m in existing_moods: all_moods.append(str(m))
+            for m in moods:
+                if m not in all_moods: all_moods.append(str(m))
+
+            final_moods = all_moods[:7] # Enforce Max 7
+            while len(final_moods) < 3: final_moods.append("Unknown") # Should not happen given get_moods logic but safety
+
+            audio["TMOO"] = TMOO(encoding=3, text=final_moods)
+            audio["TXXX:MOOD"] = TXXX(encoding=3, desc="MOOD", text=final_moods) # Fallback
+
+            # BPM
+            if bpm > 0:
+                audio["TBPM"] = TBPM(encoding=3, text=str(bpm))
+
+            audio.save()
+
+        elif ext == ".flac":
+            from mutagen.flac import FLAC
+            audio = FLAC(filepath)
+
+            # Moods (Vorbis Comment: MOOD)
+            current_moods = audio.get("MOOD", [])
+            all_moods = list(current_moods)
+            for m in moods:
+                if m not in all_moods: all_moods.append(m)
+
+            final_moods = all_moods[:7]
+            audio["MOOD"] = final_moods
+
+            if bpm > 0:
+                audio["BPM"] = str(bpm)
+
+            audio.save()
+
+        elif ext == ".ogg":
+            from mutagen.oggvorbis import OggVorbis
+            audio = OggVorbis(filepath)
+             # Moods (Vorbis Comment: MOOD)
+            current_moods = audio.get("MOOD", [])
+            all_moods = list(current_moods)
+            for m in moods:
+                if m not in all_moods: all_moods.append(m)
+
+            final_moods = all_moods[:7]
+            audio["MOOD"] = final_moods
+
+            if bpm > 0:
+                audio["BPM"] = str(bpm)
+            audio.save()
+
+        elif ext == ".wav":
+             # WAV metadata is tricky. Mutagen can handle ID3 in WAV (RIFF ID3 chunk).
+             # Or use mutagen.wave
+             from mutagen.wave import WAVE
+             audio = WAVE(filepath)
+             # ... WAVE usually supports ID3 tags too via audio.tags
+             if audio.tags is None: audio.add_tags()
+
+             # Same as MP3 ID3 logic essentially
+             from mutagen.id3 import TMOO, TBPM, TXXX
+
+             existing_moods = []
+             if "TMOO" in audio.tags: existing_moods = audio.tags["TMOO"].text
+
+             all_moods = [str(m) for m in existing_moods]
+             for m in moods:
+                 if m not in all_moods: all_moods.append(str(m))
+
+             final_moods = all_moods[:7]
+
+             audio.tags["TMOO"] = TMOO(encoding=3, text=final_moods)
+             audio.tags["TXXX:MOOD"] = TXXX(encoding=3, desc="MOOD", text=final_moods)
+             if bpm > 0:
+                 audio.tags["TBPM"] = TBPM(encoding=3, text=str(bpm))
+             audio.save()
+
+        return True
+    except Exception as e:
+        print(f"Metadata Error: {e}")
+        return False
+
 # (segments_to_srt, vtt, txt, lrc and format_eta remain the same)
 def segments_to_srt(segments):
     srt_content = ""
@@ -111,6 +316,66 @@ class ToolTip:
     def leave(self, event=None): self.status_label.config(text="")
 
 # --- GUI Class ---
+def process_audio_library(directory, model_size="base", device="cpu", compute_type="int8"):
+    """
+    Standalone tool function to process an audio library.
+    - Scans for audio files.
+    - Transcribes them (if not already done) to get text for mood analysis.
+    - Calculates BPM.
+    - Updates metadata (Moods + BPM).
+    """
+    print(f"--- Processing Library: {directory} ---")
+    if not os.path.exists(directory):
+        print("Error: Directory not found.")
+        return
+
+    # Load Model
+    print(f"Loading Whisper model ({model_size})...")
+    try:
+        from faster_whisper import WhisperModel
+        model = WhisperModel(model_size, device=device, compute_type=compute_type, download_root=MODEL_DOWNLOAD_DIR)
+    except Exception as e:
+        print(f"Failed to load model: {e}")
+        return
+
+    # Scan files
+    supported_extensions = [ext[1:] for ext in AUDIO_EXTENSIONS]
+    files = []
+    for root, _, filenames in os.walk(directory):
+        for filename in filenames:
+            if any(filename.lower().endswith(ext) for ext in supported_extensions):
+                files.append(os.path.join(root, filename))
+
+    print(f"Found {len(files)} audio files.")
+
+    for i, file_path in enumerate(files):
+        print(f"[{i+1}/{len(files)}] Processing: {os.path.basename(file_path)}")
+
+        try:
+            # 1. BPM
+            bpm = calculate_bpm(file_path)
+            print(f"  - BPM: {bpm}")
+
+            # 2. Transcription (for Mood)
+            # We need text.
+            segments, _ = model.transcribe(file_path, task="transcribe")
+            full_text = " ".join([s.text for s in segments])
+
+            # 3. Mood
+            moods = get_moods_from_text(full_text)
+            print(f"  - Moods: {moods}")
+
+            # 4. Metadata
+            if update_audio_metadata(file_path, bpm, moods):
+                print("  - Metadata updated.")
+            else:
+                print("  - Metadata update failed.")
+
+        except Exception as e:
+            print(f"  - Error: {e}")
+
+    print("--- Library Processing Complete ---")
+
 class WhisperGUI:
     def __init__(self, master):
         self.master = master
@@ -840,7 +1105,6 @@ class WhisperGUI:
                 current_file_duration = 0
 
                 transcribe_options = dict(task=task, language=lang, vad_filter=vad, word_timestamps=need_word_timestamps, beam_size=beam, initial_prompt=prompt)
-                # self._log_message_gui(f"   Options: task={task}, lang=auto, VAD={vad}, word_ts=True, beam={beam}")
 
                 segment_list = []; file_proc_time = -1
                 try:
@@ -897,8 +1161,28 @@ class WhisperGUI:
                     txt_saved = save_output("TXT", output_base, segments_to_txt, segment_list)
                     timed_saved = False
                     if save_func: timed_saved = save_output(target_timed_format, output_base, save_func, segment_list)
+
                     if txt_saved and timed_saved: self.update_status_threadsafe(f"{STATUS_COMPLETED} {file_path}"); save_successful = True
                     elif not txt_saved and not timed_saved: self._log_message_gui(f"   ⚠️ Failed to save any output files for {base_filename}.")
+
+                    # --- Audio Analysis & Tagging (NEW) ---
+                    if save_successful and is_audio:
+                        self._log_message_gui(f"   🎵 Analyzing audio characteristics for {base_filename}...")
+
+                        # BPM
+                        bpm = calculate_bpm(file_path)
+                        self._log_message_gui(f"      BPM: {bpm}")
+
+                        # Moods from TXT content
+                        full_text = segments_to_txt(segment_list)
+                        moods = get_moods_from_text(full_text)
+                        self._log_message_gui(f"      Moods: {', '.join(moods)}")
+
+                        # Write Metadata
+                        if update_audio_metadata(file_path, bpm, moods):
+                             self._log_message_gui("      ✅ Metadata updated.")
+                        else:
+                             self._log_message_gui("      ❌ Failed to update metadata.")
 
                 # --- Update Progress & ETA ---
                 self.update_progress_bars(file_progress=100 if save_successful else self.file_progress_bar['value'])
@@ -959,9 +1243,11 @@ class WhisperGUI:
     def run_install_core_deps_thread(self):
         install_thread = threading.Thread(target=self.install_core_dependencies, daemon=True); install_thread.start()
     def install_core_dependencies(self):
-        libs = ["faster-whisper", "librosa", "numpy", "matplotlib", "tkinterdnd2-universal"]
+        libs = ["faster-whisper", "librosa", "numpy", "matplotlib", "tkinterdnd2-universal", "mutagen", "textblob"]
         self._log_message_gui(f"⚙️ Attempting to install/update: {', '.join(libs)}...")
         try:
+            # Ensure textblob corpora are downloaded
+            subprocess.run([sys.executable, "-m", "textblob.download_corpora"], check=False)
             python_exe = sys.executable; command = [python_exe, "-m", "pip", "install", "--upgrade"] + libs
             process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8')
             stdout, stderr = process.communicate()
