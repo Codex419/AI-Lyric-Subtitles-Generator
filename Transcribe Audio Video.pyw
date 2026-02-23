@@ -31,12 +31,14 @@ AUDIO_EXTENSIONS = ["*.wav", "*.mp3", "*.flac", "*.aac", "*.m4a", "*.ogg"]
 VIDEO_EXTENSIONS = ["*.mp4", "*.mkv", "*.avi", "*.mov", "*.wmv", "*.flv"]
 SUPPORTED_EXTENSIONS = AUDIO_EXTENSIONS + VIDEO_EXTENSIONS
 MODELS = {
-    "tiny": "Tiny (~39M). Fast, low accuracy.", "tiny.en": "Tiny English-only (~39M).",
-    "base": "Base (~74M). Balanced.", "base.en": "Base English-only (~74M).",
-    "small": "Small (~244M). Good accuracy.", "small.en": "Small English-only (~244M).",
-    "medium": "Medium (~769M). High accuracy.", "medium.en": "Medium English-only (~769M).",
-    "large-v1": "Large v1 (~1.55B). Very high accuracy.", "large-v2": "Large v2 (~1.55B). Improved.",
+    "large-v3-turbo": "Large v3 Turbo. Optimized for speed/accuracy balance.",
     "large-v3": "Large v3 (~1.55B). Best accuracy.",
+    "large-v2": "Large v2 (~1.55B). Improved.",
+    "medium": "Medium (~769M). High accuracy.", "medium.en": "Medium English-only (~769M).",
+    "small": "Small (~244M). Good accuracy.", "small.en": "Small English-only (~244M).",
+    "base": "Base (~74M). Balanced.", "base.en": "Base English-only (~74M).",
+    "tiny": "Tiny (~39M). Fast, low accuracy.", "tiny.en": "Tiny English-only (~39M).",
+    "distil-large-v3": "Distilled L-v3. Faster large-v3.",
     "distil-large-v2": "Distilled L-v2 (~750M). Faster large.",
     "distil-medium.en": "Distilled M-en (~450M). Faster medium.en.",
     "distil-small.en": "Distilled S-en (~150M). Faster small.en."
@@ -241,21 +243,13 @@ class WhisperGUI:
 
         ttk.Label(model_frame, text="Model Size:", style="Futuristic.TLabel").grid(row=0, column=0, padx=5, pady=2, sticky="w")
         self.model_combo = ttk.Combobox(model_frame, textvariable=self.model_size, values=MODEL_SIZES, width=18, style="Futuristic.TCombobox")
-        self.model_combo.grid(row=0, column=1, padx=5, pady=2, sticky="ew")
+        self.model_combo.grid(row=0, column=1, columnspan=3, padx=5, pady=2, sticky="ew")
         self.model_combo.bind("<<ComboboxSelected>>", self.update_model_description)
-
-        ttk.Label(model_frame, text="Quantization:", style="Futuristic.TLabel").grid(row=0, column=2, padx=5, pady=2, sticky="w")
-        self.quant_combo = ttk.Combobox(model_frame, textvariable=self.quantization, values=[""] + QUANTIZED_MODEL_SUFFIXES, width=12, style="Futuristic.TCombobox")
-        self.quant_combo.grid(row=0, column=3, padx=5, pady=2, sticky="ew")
 
         ttk.Label(model_frame, text="Device:", style="Futuristic.TLabel").grid(row=1, column=0, padx=5, pady=2, sticky="w")
         self.device_combo = ttk.Combobox(model_frame, textvariable=self.device, values=self.available_devices, state="readonly", width=8, style="Futuristic.TCombobox")
-        self.device_combo.grid(row=1, column=1, padx=5, pady=2, sticky="ew")
-        self.device_combo.bind("<<ComboboxSelected>>", self.update_compute_types)
-
-        ttk.Label(model_frame, text="Compute Type:", style="Futuristic.TLabel").grid(row=1, column=2, padx=5, pady=2, sticky="w")
-        self.compute_combo = ttk.Combobox(model_frame, textvariable=self.compute_type, state="readonly", width=12, style="Futuristic.TCombobox")
-        self.compute_combo.grid(row=1, column=3, padx=5, pady=2, sticky="ew")
+        self.device_combo.grid(row=1, column=1, columnspan=3, padx=5, pady=2, sticky="ew")
+        # removed update_compute_types binding as it is now auto
 
         self.model_desc_label = ttk.Label(model_frame, textvariable=self.model_description, wraplength=450, justify=tk.LEFT, style="Desc.TLabel")
         self.model_desc_label.grid(row=2, column=0, columnspan=4, padx=5, pady=(5,2), sticky="ew")
@@ -504,9 +498,16 @@ class WhisperGUI:
     def run_processing_loop(self, files):
         model_size = self.model_size.get()
         device = self.device.get()
-        compute = self.compute_type.get()
-        quant = self.quantization.get()
-        full_model = f"{model_size}-{quant}" if quant else model_size
+
+        # Auto-detect compute type
+        compute = "int8"
+        if device == "cuda":
+            compute = "float16" # or 'auto' if faster-whisper supports it robustly, but float16 is standard for GPU
+
+        # Quantization is now implied by model choice or handled internally if model name has suffix
+        # But we removed manual selection. Standard models don't have suffix in name usually unless 'distil-large-v2' etc.
+        # We just use model_size directly.
+        full_model = model_size
 
         engine = TranscriptionEngine(full_model, device, compute, MODEL_DOWNLOAD_DIR)
 
