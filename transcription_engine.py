@@ -25,8 +25,22 @@ class TranscriptionEngine:
             return self.model
         except Exception as e:
             msg = str(e)
+            # Automatic Fallback for float16 error on older GPUs
+            if "float16" in msg and self.device == "cuda" and self.compute_type == "float16":
+                print(f"Float16 failed ({msg}). Retrying with float32...")
+                try:
+                    self.compute_type = "float32"
+                    self.model = WhisperModel(
+                        self.model_size,
+                        device=self.device,
+                        compute_type=self.compute_type,
+                        download_root=self.download_root
+                    )
+                    return self.model
+                except Exception as e2:
+                    raise RuntimeError(f"Failed to load model with fallback float32: {e2}")
+
             if "int8" in self.compute_type and self.device == "cuda":
-                # Fallback suggestion
                 raise RuntimeError(f"Failed to load model on CUDA with int8. Try float16 or int8_float16. Error: {msg}")
             if "disk space" in msg.lower():
                 raise RuntimeError(f"Insufficient disk space to download model. Error: {msg}")

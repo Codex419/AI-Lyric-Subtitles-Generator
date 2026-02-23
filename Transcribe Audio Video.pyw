@@ -9,6 +9,7 @@ import sys
 import queue
 import gc
 import logging
+import matplotlib.pyplot as plt
 
 # --- Custom Modules ---
 from audio_processor import AudioProcessor
