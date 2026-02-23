@@ -119,6 +119,7 @@ class WhisperGUI:
 
         # --- Variables ---
         self.input_mode = tk.StringVar(value="single"); self.input_path = tk.StringVar()
+        self.input_label_text = tk.StringVar(value="Select File:")
         self.model_size = tk.StringVar(value="large-v2")
         self.quantization = tk.StringVar(value="")
         self.device = tk.StringVar()
@@ -395,11 +396,11 @@ class WhisperGUI:
     def update_input_label(self):
         mode = self.input_mode.get()
         if mode == "single":
-            self.lbl_input.config(text="Select File:")
+            self.input_label_text.set("Select File:")
             self.batch_progress_label.grid_remove()
             self.batch_progress_bar.grid_remove()
         else:
-            self.lbl_input.config(text="Select Dir:")
+            self.input_label_text.set("Select Dir:")
             self.batch_progress_label.grid(row=1, column=0, sticky="w")
             self.batch_progress_bar.grid(row=1, column=1, sticky="ew")
 
