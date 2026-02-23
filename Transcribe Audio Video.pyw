@@ -17,6 +17,13 @@ from metadata_handler import MetadataHandler
 from mood_analyzer import MoodAnalyzer
 from logging_utils import setup_logging, log_context
 
+# --- Dependency Checks ---
+try:
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+except ImportError:
+    messagebox.showerror("Dependency Error", "Please install TkinterDnD2:\npip install tkinterdnd2-universal")
+    sys.exit(1)
+
 # --- Constants ---
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 MODEL_DOWNLOAD_DIR = os.path.join(SCRIPT_DIR, "Audio Models")
