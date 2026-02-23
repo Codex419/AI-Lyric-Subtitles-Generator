@@ -10,6 +10,9 @@ import queue
 import gc
 import logging
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.lines import Line2D
+import tkinter.simpledialog as simpledialog
 
 # --- Custom Modules ---
 from audio_processor import AudioProcessor
@@ -207,6 +210,7 @@ class WhisperGUI:
         self.menu_bar.add_cascade(label="Tools", menu=tools_menu)
         # tools_menu.add_command(label="Install Core Dependencies", command=self.run_install_core_deps_thread)
         # tools_menu.add_command(label="Check/Install PyTorch", command=self.check_pytorch_install)
+        tools_menu.add_command(label="Login to Hugging Face", command=self.prompt_hf_login)
         tools_menu.add_separator()
         tools_menu.add_command(label="Open Model Folder", command=self.open_model_folder)
 
@@ -545,14 +549,29 @@ class WhisperGUI:
         fname = os.path.basename(filepath)
         iid = self.file_data[filepath]["id"]
 
+        # Determine paths and types
+        base_path = os.path.splitext(filepath)[0]
+        is_video = any(fname.lower().endswith(e[1:]) for e in VIDEO_EXTENSIONS)
+        is_audio = not is_video
+
+        # Output Check (Skip if exists and not overwriting)
+        if not self.overwrite_output.get():
+            if is_audio and os.path.exists(base_path + ".lrc"):
+                self.log(f"Skipping {fname} (.lrc exists)")
+                self.master.after(0, lambda: self.file_tree.set(iid, "status", STATUS_SKIPPED))
+                self.master.after(0, lambda: self.file_tree.set(iid, "progress", "100%"))
+                return
+            if is_video and os.path.exists(base_path + ".srt"):
+                self.log(f"Skipping {fname} (.srt exists)")
+                self.master.after(0, lambda: self.file_tree.set(iid, "status", STATUS_SKIPPED))
+                self.master.after(0, lambda: self.file_tree.set(iid, "progress", "100%"))
+                return
+
         # Update UI
         self.master.after(0, lambda: self.file_tree.set(iid, "status", STATUS_PROCESSING))
         self.master.after(0, lambda: self.file_progress_label.config(text=f"Processing: {fname}"))
 
         try:
-            is_video = any(fname.lower().endswith(e[1:]) for e in VIDEO_EXTENSIONS)
-            is_audio = not is_video
-
             # Transcription Task
             task = "transcribe"
             if self.translate_output.get():
@@ -602,6 +621,18 @@ class WhisperGUI:
             self.master.after(0, lambda: self.file_tree.set(iid, "status", STATUS_ERROR))
         finally:
             self.master.after(0, lambda: self.file_progress_bar.configure(value=0))
+
+    def prompt_hf_login(self):
+        token = simpledialog.askstring("Hugging Face Login", "Enter your HF Access Token:", parent=self.master)
+        if token:
+            try:
+                from huggingface_hub import login
+                login(token=token)
+                messagebox.showinfo("Success", "Logged in to Hugging Face!")
+            except ImportError:
+                messagebox.showerror("Error", "huggingface_hub library not found.\nPlease install it: pip install huggingface_hub")
+            except Exception as e:
+                messagebox.showerror("Login Error", f"Failed to login: {e}")
 
     def on_closing(self):
         if self.processing_active:
