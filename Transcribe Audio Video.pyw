@@ -485,11 +485,21 @@ class WhisperGUI:
         files = list(self.file_data.keys())
         if not files: return
 
+        # Collect configuration safely in main thread
+        config = {
+            "model_size": self.model_size.get(),
+            "device": self.device.get(),
+            "beam_size": self.beam_size.get(),
+            "vad_filter": self.vad_filter.get(),
+            "overwrite_output": self.overwrite_output.get(),
+            "translate_output": self.translate_output.get()
+        }
+
         self.processing_active = True
         self.stop_requested = 0
         self.processed_batch_files = 0
         self.start_stop_button.config(text="🛑 Stop", style="Stop.TButton")
-        self.processing_thread = threading.Thread(target=self.run_processing_loop, args=(files,), daemon=True)
+        self.processing_thread = threading.Thread(target=self.run_processing_loop, args=(files, config), daemon=True)
         self.processing_thread.start()
 
     def request_stop(self):
@@ -500,18 +510,15 @@ class WhisperGUI:
             if messagebox.askyesno("Stop Immediate", "Force stop now?"):
                 self.stop_requested = 2
 
-    def run_processing_loop(self, files):
-        model_size = self.model_size.get()
-        device = self.device.get()
+    def run_processing_loop(self, files, config):
+        model_size = config["model_size"]
+        device = config["device"]
 
         # Auto-detect compute type
         compute = "int8"
         if device == "cuda":
-            compute = "float16" # or 'auto' if faster-whisper supports it robustly, but float16 is standard for GPU
+            compute = "float16"
 
-        # Quantization is now implied by model choice or handled internally if model name has suffix
-        # But we removed manual selection. Standard models don't have suffix in name usually unless 'distil-large-v2' etc.
-        # We just use model_size directly.
         full_model = model_size
 
         engine = TranscriptionEngine(full_model, device, compute, MODEL_DOWNLOAD_DIR)
@@ -530,7 +537,7 @@ class WhisperGUI:
                         if device == "cuda": torch.cuda.empty_cache()
 
                     self.processed_batch_files = i + 1
-                    self.process_single_file(engine, fp)
+                    self.process_single_file(engine, fp, config)
 
                     # Update Batch Progress
                     prog = (i + 1) / len(files) * 100
@@ -545,7 +552,7 @@ class WhisperGUI:
             self.processing_active = False
             self.master.after(0, lambda: self.start_stop_button.config(text="🚀 Start Transcription", style="Accent.TButton"))
 
-    def process_single_file(self, engine, filepath):
+    def process_single_file(self, engine, filepath, config):
         fname = os.path.basename(filepath)
         iid = self.file_data[filepath]["id"]
 
@@ -555,7 +562,7 @@ class WhisperGUI:
         is_audio = not is_video
 
         # Output Check (Skip if exists and not overwriting)
-        if not self.overwrite_output.get():
+        if not config["overwrite_output"]:
             if is_audio and os.path.exists(base_path + ".lrc"):
                 self.log(f"Skipping {fname} (.lrc exists)")
                 self.master.after(0, lambda: self.file_tree.set(iid, "status", STATUS_SKIPPED))
@@ -574,13 +581,13 @@ class WhisperGUI:
         try:
             # Transcription Task
             task = "transcribe"
-            if self.translate_output.get():
+            if config["translate_output"]:
                 task = "translate" # Force translation to English
 
             # Transcribe
             self.log(f"Transcribing {fname} (Task: {task})...")
             start_t = time.time()
-            segments, info = engine.transcribe(filepath, task=task, beam_size=self.beam_size.get(), vad_filter=self.vad_filter.get())
+            segments, info = engine.transcribe(filepath, task=task, beam_size=config["beam_size"], vad_filter=config["vad_filter"])
 
             # Collect segments
             segment_list = []
