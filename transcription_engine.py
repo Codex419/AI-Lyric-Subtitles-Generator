@@ -10,18 +10,27 @@ class TranscriptionEngine:
         self.download_root = download_root
 
     def load_model(self):
-        """Loads the Whisper model."""
+        """Loads the Whisper model with error handling."""
         # Check for TensorRT optimization if device is cuda
         # CTranslate2 handles this if the model is converted or if using specific options,
         # but standard faster-whisper usage relies on compute_type.
         print(f"Loading model {self.model_size} on {self.device} ({self.compute_type})...")
-        self.model = WhisperModel(
-            self.model_size,
-            device=self.device,
-            compute_type=self.compute_type,
-            download_root=self.download_root
-        )
-        return self.model
+        try:
+            self.model = WhisperModel(
+                self.model_size,
+                device=self.device,
+                compute_type=self.compute_type,
+                download_root=self.download_root
+            )
+            return self.model
+        except Exception as e:
+            msg = str(e)
+            if "int8" in self.compute_type and self.device == "cuda":
+                # Fallback suggestion
+                raise RuntimeError(f"Failed to load model on CUDA with int8. Try float16 or int8_float16. Error: {msg}")
+            if "disk space" in msg.lower():
+                raise RuntimeError(f"Insufficient disk space to download model. Error: {msg}")
+            raise RuntimeError(f"Failed to load/download model '{self.model_size}': {msg}")
 
     def transcribe(self, file_path, **kwargs):
         """Wraps model.transcribe."""

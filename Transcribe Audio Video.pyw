@@ -121,9 +121,9 @@ class WhisperGUI:
         self.input_mode = tk.StringVar(value="single"); self.input_path = tk.StringVar()
         self.input_label_text = tk.StringVar(value="Select File:")
         self.model_size = tk.StringVar(value="large-v2")
-        self.quantization = tk.StringVar(value="")
+        self.quantization = tk.StringVar(value="") # Default to empty (let model decide or user select valid)
         self.device = tk.StringVar()
-        self.compute_type = tk.StringVar()
+        self.compute_type = tk.StringVar(value="auto") # Default auto
         self.vad_filter = tk.BooleanVar(value=False); self.beam_size = tk.IntVar(value=5)
         self.overwrite_output = tk.BooleanVar(value=False)
         self.translate_output = tk.BooleanVar(value=False) # New Translation Toggle
@@ -411,12 +411,21 @@ class WhisperGUI:
 
     def update_compute_types(self, event=None):
         dev = self.device.get()
-        if dev == "cuda": vals = COMPUTE_TYPES_CUDA
-        elif dev == "rocm": vals = COMPUTE_TYPES_ROCM
-        else: vals = COMPUTE_TYPES_CPU
+        vals = []
+        if dev == "cuda":
+            vals = COMPUTE_TYPES_CUDA
+        elif dev == "rocm":
+            vals = COMPUTE_TYPES_ROCM
+        else:
+            # CPU: Filter out float16 as it's not natively supported/efficient
+            vals = [ct for ct in COMPUTE_TYPES_CPU if ct != "float16"]
+
         self.compute_combo['values'] = vals
-        if self.compute_type.get() not in vals:
-            self.compute_type.set(vals[0] if vals else "default")
+
+        # Reset to auto if current selection is invalid for new device
+        current = self.compute_type.get()
+        if current not in vals:
+            self.compute_type.set("auto" if "auto" in vals else (vals[0] if vals else "default"))
 
     def browse_input(self):
         if self.processing_active: return
