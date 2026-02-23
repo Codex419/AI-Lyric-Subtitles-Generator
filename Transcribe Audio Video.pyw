@@ -31,7 +31,7 @@ AUDIO_EXTENSIONS = ["*.wav", "*.mp3", "*.flac", "*.aac", "*.m4a", "*.ogg"]
 VIDEO_EXTENSIONS = ["*.mp4", "*.mkv", "*.avi", "*.mov", "*.wmv", "*.flv"]
 SUPPORTED_EXTENSIONS = AUDIO_EXTENSIONS + VIDEO_EXTENSIONS
 MODELS = {
-    "large-v3-turbo": "Large v3 Turbo. Optimized for speed/accuracy balance.",
+    "deep-learning-analytics/whisper-large-v3-turbo": "Large v3 Turbo. Optimized for speed/accuracy balance.",
     "large-v3": "Large v3 (~1.55B). Best accuracy.",
     "large-v2": "Large v2 (~1.55B). Improved.",
     "medium": "Medium (~769M). High accuracy.", "medium.en": "Medium English-only (~769M).",
